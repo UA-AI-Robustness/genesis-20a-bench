@@ -1,0 +1,96 @@
+{
+  "datasets": [
+    "bdg-2:panther",
+    "bdg-2:bear",
+    "bdg-2:fox",
+    "bdg-2:rat"
+  ],
+  "dataset": "bdg-2:panther+bdg-2:bear+bdg-2:fox+bdg-2:rat",
+  "ckpt_sha256_8": "fdb4ecf45568",
+  "n_windows": 1020,
+  "n_windows_raw": 1024,
+  "n_dropped": 4,
+  "sampling_seed": 42,
+  "seeds": [
+    42
+  ],
+  "attack": "random",
+  "protocol": "deterministic sample, bootstrap CI over windows (N=4000)",
+  "results": [
+    {
+      "epsilon": 0.0,
+      "aggregate_nrmse": 0.12040505676845434,
+      "mean": 0.12040505676845434,
+      "lo": 0.08049971481184179,
+      "hi": 0.16702003260654164,
+      "median": NaN,
+      "n_windows": 1020
+    },
+    {
+      "epsilon": 0.01,
+      "aggregate_nrmse": 0.11908419682152756,
+      "mean": 0.11908419682152756,
+      "lo": 0.0792708419405837,
+      "hi": 0.1656513584282365,
+      "median": NaN,
+      "n_windows": 1020
+    },
+    {
+      "epsilon": 0.025,
+      "aggregate_nrmse": 0.11866320441526361,
+      "mean": 0.11866320441526361,
+      "lo": 0.07889521549326181,
+      "hi": 0.16525270490348704,
+      "median": NaN,
+      "n_windows": 1020
+    },
+    {
+      "epsilon": 0.05,
+      "aggregate_nrmse": 0.11825900114766746,
+      "mean": 0.11825900114766746,
+      "lo": 0.07894206011113707,
+      "hi": 0.16449612929696583,
+      "median": NaN,
+      "n_windows": 1020
+    },
+    {
+      "epsilon": 0.075,
+      "aggregate_nrmse": 0.11854768757294651,
+      "mean": 0.11854768757294651,
+      "lo": 0.07975263870353318,
+      "hi": 0.1642100968719905,
+      "median": NaN,
+      "n_windows": 1020
+    },
+    {
+      "epsilon": 0.1,
+      "aggregate_nrmse": 0.11977241886905855,
+      "mean": 0.11977241886905855,
+      "lo": 0.08171362465199297,
+      "hi": 0.16498709087231703,
+      "median": NaN,
+      "n_windows": 1020
+    },
+    {
+      "epsilon": 0.15,
+      "aggregate_nrmse": 0.12401173730808758,
+      "mean": 0.12401173730808758,
+      "lo": 0.08762909278037813,
+      "hi": 0.168243766028421,
+      "median": NaN,
+      "n_windows": 1020
+    },
+    {
+      "epsilon": 0.2,
+      "aggregate_nrmse": 0.12976664978747088,
+      "mean": 0.12976664978747088,
+      "lo": 0.09538902480910534,
+      "hi": 0.1726238141988061,
+      "median": NaN,
+      "n_windows": 1020
+    }
+  ],
+  "device": "cuda",
+  "git_rev": "unknown",
+  "timestamp": "2026-04-20T20:08:25Z"
+}
