@@ -306,6 +306,240 @@ def random_attack(
 
 
 # --------------------------------------------------------------------- #
+# CMA-ES + q_phi attack (O1 proposed arm)                               #
+# --------------------------------------------------------------------- #
+
+class _QPhiMLP(torch.nn.Module):
+    """Tiny MLP proposal: maps context window -> perturbation bias."""
+    def __init__(self, dim: int, hidden: tuple = (64, 64)):
+        super().__init__()
+        layers = []
+        prev = dim
+        for h in hidden:
+            layers += [torch.nn.Linear(prev, h), torch.nn.ReLU()]
+            prev = h
+        layers.append(torch.nn.Linear(prev, dim))
+        layers.append(torch.nn.Tanh())
+        self.net = torch.nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+
+def _autocorr_penalty(series: np.ndarray, ref: np.ndarray, lag: int = 24) -> float:
+    """Penalize shifts in 24h autocorrelation vs reference."""
+    def _acf(x):
+        x = x - x.mean()
+        if len(x) <= lag:
+            return 0.0
+        return float((x[:-lag] * x[lag:]).sum()) / (float((x * x).sum()) + 1e-12)
+    return (_acf(series) - _acf(ref)) ** 2
+
+
+def _smoothness_penalty(delta: np.ndarray) -> float:
+    """Second-difference L2 norm on delta (penalizes high-freq noise)."""
+    if len(delta) < 3:
+        return 0.0
+    return float(np.sum(np.diff(delta.ravel(), n=2) ** 2))
+
+
+def _dct_basis(ctx_len: int, n_coeffs: int) -> np.ndarray:
+    """Type-II DCT basis matrix [n_coeffs, ctx_len]."""
+    n = ctx_len
+    basis = np.zeros((n_coeffs, n), dtype=np.float64)
+    for k in range(n_coeffs):
+        for i in range(n):
+            basis[k, i] = np.cos(np.pi * (2 * i + 1) * k / (2 * n))
+        if k == 0:
+            basis[k] *= np.sqrt(1.0 / n)
+        else:
+            basis[k] *= np.sqrt(2.0 / n)
+    return basis
+
+
+_SHARED_QPHI: dict = {}
+
+
+def cmaes_attack(
+    model: torch.nn.Module,
+    batch: Dict[str, torch.Tensor],
+    epsilon: float,
+    population: int = 16,
+    tf_generations: int = 25,
+    ar_generations: int = 12,
+    n_dct: int = 20,
+    qphi_hidden: tuple = (32, 32),
+    qphi_warmup: int = 6,
+    qphi_update_every: int = 10,
+    prior_lam_ac: float = 0.002,
+) -> Dict[str, torch.Tensor]:
+    """Two-stage CMA-ES + amortized q_phi attack on context load.
+
+    Stage 1 (TF explore): CMA-ES optimizes teacher-forced MSE displacement
+      in the DCT subspace — fast exploration to find a good region.
+    Stage 2 (AR refine): CMA-ES switches to autoregressive NRMSE against
+      true targets — the actual evaluation metric PGD cannot optimize.
+
+    q_phi is AMORTIZED across windows and batches: successful DCT coefficients
+    from earlier windows bias the search for later ones, accumulating knowledge
+    that PGD's per-window gradient steps cannot.
+    """
+    import cma
+
+    device = batch["load"].device
+    ctx_len = 168
+    B = batch["load"].shape[0]
+    load = batch["load"].detach()
+    load_ctx = load[:, :ctx_len, :].squeeze(-1)  # [B, 168]
+    load_tail = load[:, ctx_len:, :]
+
+    dct_basis = _dct_basis(ctx_len, n_dct)  # [n_dct, ctx_len]
+    best_deltas = torch.zeros(B, ctx_len, device=device)
+
+    model.eval()
+    for p in model.parameters():
+        p.requires_grad_(False)
+
+    qphi_key = f"eps_{epsilon:.4f}"
+    if qphi_key not in _SHARED_QPHI:
+        _SHARED_QPHI[qphi_key] = {
+            "model": _QPhiMLP(n_dct, qphi_hidden).to(device),
+            "opt": None,
+            "coeffs": [],
+        }
+        _SHARED_QPHI[qphi_key]["opt"] = torch.optim.Adam(
+            _SHARED_QPHI[qphi_key]["model"].parameters(), lr=1e-3
+        )
+    shared = _SHARED_QPHI[qphi_key]
+    qphi = shared["model"]
+    qphi_opt = shared["opt"]
+    all_successful_coeffs = shared["coeffs"]
+
+    total_generations = tf_generations + ar_generations
+
+    for wi in range(B):
+        ctx_np = load_ctx[wi].cpu().numpy().astype(np.float64)
+
+        best_ar_nrmse = -1e9
+        best_delta_full = np.zeros(ctx_len, dtype=np.float32)
+
+        opts = cma.CMAOptions()
+        opts["popsize"] = population
+        opts["maxiter"] = total_generations
+        opts["seed"] = 42 + wi
+        opts["verbose"] = -9
+        opts["tolfun"] = 0
+        opts["tolx"] = 0
+
+        sigma0 = epsilon * 0.3
+        es = cma.CMAEvolutionStrategy(np.zeros(n_dct), sigma0, opts)
+
+        template_batch = {k: v[wi:wi+1] for k, v in batch.items()}
+        tail_i = load_tail[wi:wi+1]
+        target_i = tail_i.squeeze(-1).to(device)  # [1, pred_len]
+
+        with torch.no_grad():
+            clean_surr = forecast_tf_mean(model, template_batch)
+
+        gen = 0
+        while not es.stop() and gen < total_generations:
+            use_ar = gen >= tf_generations
+            solutions = es.ask()
+
+            use_qphi = (gen >= qphi_warmup
+                        and len(all_successful_coeffs) >= 3)
+            if use_qphi:
+                n_qphi = population // 2
+                with torch.no_grad():
+                    ctx_t = torch.from_numpy(
+                        ctx_np[:n_dct]
+                    ).float().to(device).unsqueeze(0)
+                    qphi_out = qphi(ctx_t).squeeze(0).cpu().numpy()
+                for j in range(n_qphi):
+                    noise = np.random.randn(n_dct) * sigma0 * 0.15
+                    solutions[j] = qphi_out + noise
+
+            pop_size = len(solutions)
+            coeffs_np = np.array(solutions, dtype=np.float64)
+            deltas_full = (coeffs_np @ dct_basis).astype(np.float32)
+            deltas_full = np.clip(deltas_full, -epsilon, epsilon)
+
+            ctx_base = np.broadcast_to(
+                ctx_np.astype(np.float32), (pop_size, ctx_len)
+            )
+            perturbed = ctx_base + deltas_full
+            perturbed_t = torch.from_numpy(perturbed).unsqueeze(-1).to(device)
+            pop_load = torch.cat(
+                [perturbed_t, tail_i.expand(pop_size, -1, -1)], dim=1
+            )
+            pop_batch = {
+                k: v.expand(pop_size, *v.shape[1:]).contiguous()
+                for k, v in template_batch.items()
+            }
+            pop_batch["load"] = pop_load
+
+            with torch.no_grad():
+                if use_ar:
+                    preds = forecast_ar_mean(model, pop_batch)
+                    tgt_exp = target_i.expand(pop_size, -1)
+                    scores = ((preds - tgt_exp) ** 2).mean(
+                        dim=1
+                    ).cpu().numpy()
+                else:
+                    preds = forecast_tf_mean(model, pop_batch)
+                    clean_exp = clean_surr.expand(pop_size, -1)
+                    scores = ((preds - clean_exp) ** 2).mean(
+                        dim=1
+                    ).cpu().numpy()
+
+            fitnesses = []
+            for j in range(pop_size):
+                penalty = prior_lam_ac * _autocorr_penalty(
+                    ctx_np + deltas_full[j], ctx_np
+                )
+                reward = float(scores[j]) - penalty
+                fitnesses.append(-reward)
+
+                if reward > best_ar_nrmse:
+                    best_ar_nrmse = reward
+                    best_delta_full = deltas_full[j].copy()
+                    all_successful_coeffs.append(coeffs_np[j].copy())
+
+            es.tell(solutions, fitnesses)
+            gen += 1
+
+            if (use_qphi and len(all_successful_coeffs) >= 5
+                    and gen % qphi_update_every == 0):
+                recent = all_successful_coeffs[
+                    -min(64, len(all_successful_coeffs)):
+                ]
+                targets_t = torch.from_numpy(
+                    np.stack(recent)
+                ).float().to(device)
+                ctx_in = torch.from_numpy(
+                    ctx_np[:n_dct]
+                ).float().to(device).unsqueeze(0).expand(len(recent), -1)
+                for _ in range(20):
+                    qphi_opt.zero_grad()
+                    pred_c = qphi(ctx_in)
+                    qloss = ((pred_c - targets_t) ** 2).mean()
+                    qloss.backward()
+                    qphi_opt.step()
+
+        best_deltas[wi] = torch.from_numpy(best_delta_full).to(device)
+        if (wi + 1) % 10 == 0 or wi == 0:
+            log.info("  cmaes window %d/%d  best=%.4f  qphi_bank=%d",
+                     wi + 1, B, best_ar_nrmse,
+                     len(all_successful_coeffs))
+
+    with torch.no_grad():
+        adv_batch = {k: v.clone() for k, v in batch.items()}
+        adv_ctx = load_ctx + best_deltas
+        adv_batch["load"] = torch.cat([adv_ctx.unsqueeze(-1), load_tail], dim=1)
+    return adv_batch
+
+
+# --------------------------------------------------------------------- #
 # Driver                                                                #
 # --------------------------------------------------------------------- #
 
@@ -385,6 +619,8 @@ def run(
             elif attack == "random":
                 adv = random_attack(model, b, epsilon=eps,
                                     seed=1000 * sampling_seed + bi)
+            elif attack == "cmaes":
+                adv = cmaes_attack(model, b, epsilon=eps)
             else:
                 raise ValueError(f"unknown attack {attack!r}")
             preds.append(forecast_ar_mean(model, adv).detach().cpu())
@@ -530,7 +766,7 @@ def main():
     ap.add_argument("--epsilons", type=float, nargs="+",
                     default=[0.0, 0.01, 0.025, 0.05, 0.1])
     ap.add_argument("--batch-size", type=int, default=32)
-    ap.add_argument("--attack", default="pgd", choices=["pgd", "random"])
+    ap.add_argument("--attack", default="pgd", choices=["pgd", "random", "cmaes"])
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--out", type=Path, default=Path("results/experiment.json"))
     ap.add_argument("--fig", type=Path, default=Path("../Figures/preliminary_bar.pdf"))
@@ -556,7 +792,8 @@ def main():
         json.dump(out, f, indent=2)
     log.info("wrote %s", args.out)
 
-    make_figure(out, args.fig)
+    if str(args.fig) != "/dev/null":
+        make_figure(out, args.fig)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,69 @@
+{
+  "datasets": [
+    "bdg-2:panther",
+    "bdg-2:bear",
+    "bdg-2:fox",
+    "bdg-2:rat"
+  ],
+  "dataset": "bdg-2:panther+bdg-2:bear+bdg-2:fox+bdg-2:rat",
+  "ckpt_sha256_8": "fdb4ecf45568",
+  "n_windows": 1020,
+  "n_windows_raw": 1024,
+  "n_dropped": 4,
+  "sampling_seed": 42,
+  "seeds": [
+    42
+  ],
+  "attack": "cmaes",
+  "protocol": "deterministic sample, bootstrap CI over windows (N=4000)",
+  "results": [
+    {
+      "epsilon": 0.0,
+      "aggregate_nrmse": 0.12040505676845434,
+      "mean": 0.12040505676845434,
+      "lo": 0.08049971481184179,
+      "hi": 0.16702003260654164,
+      "median": NaN,
+      "n_windows": 1020
+    },
+    {
+      "epsilon": 0.05,
+      "aggregate_nrmse": 0.1610709315126596,
+      "mean": 0.1610709315126596,
+      "lo": 0.12383258298312814,
+      "hi": 0.20376066153501543,
+      "median": NaN,
+      "n_windows": 1020
+    },
+    {
+      "epsilon": 0.1,
+      "aggregate_nrmse": 0.19592385959069225,
+      "mean": 0.19592385959069225,
+      "lo": 0.1642312684099785,
+      "hi": 0.23479564031251168,
+      "median": NaN,
+      "n_windows": 1020
+    },
+    {
+      "epsilon": 0.15,
+      "aggregate_nrmse": 0.22905819595717583,
+      "mean": 0.22905819595717583,
+      "lo": 0.20126395805152,
+      "hi": 0.26493693275626384,
+      "median": NaN,
+      "n_windows": 1020
+    },
+    {
+      "epsilon": 0.2,
+      "aggregate_nrmse": 0.2720392295431933,
+      "mean": 0.2720392295431933,
+      "lo": 0.24554339287882082,
+      "hi": 0.3069910799880255,
+      "median": NaN,
+      "n_windows": 1020
+    }
+  ],
+  "device": "cuda",
+  "git_rev": "unknown",
+  "timestamp": "2026-04-29T12:26:03Z"
+}
