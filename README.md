@@ -4,7 +4,7 @@
   <img src="docs/figures/preliminary_bar.png" alt="Preliminary vulnerability baseline: PGD vs uniform noise on BuildingsBench Transformer-L (zero-shot, BDG-2 commercial)" width="92%">
 </p>
 
-**What this shows.** Under the same $L_\infty$ budget on the context-load channel, a **targeted white-box PGD** attack drives 24-hour aggregate NRMSE past an operator threshold $\tau_{\mathrm{bad}} = 1.5 \times \mathrm{clean}$ at $\varepsilon^\ast \approx 0.14$, while **matched-budget uniform noise** leaves NRMSE below $\tau_{\mathrm{bad}}$ for every $\varepsilon$ tested on this window sample. At $\varepsilon = 0.2$, excess degradation under PGD is $\sim 9\times$ that under noise (point estimate on $N=1020$ windows; bands are 95% bootstrap CIs over windows).
+**What this shows.** The proposed **CMA-ES + DCT agent** (blue) finds **84% more NRMSE degradation** than white-box PGD (red, 20 gradient steps) at $\varepsilon = 0.2$, crossing $\tau_{\mathrm{bad}} = 1.5 \times \mathrm{clean}$ at $\varepsilon^\ast \approx 0.08$ versus PGD's $\approx 0.14$. Both targeted methods far exceed **matched-budget uniform noise** (gray). The agent searches a 20-coefficient DCT subspace (smooth, load-like perturbations), explores via a fast teacher-forced surrogate, then refines on the true autoregressive NRMSE that PGD's differentiable surrogate cannot reach. An amortized proposal network $q_\phi$ trained online across windows further concentrates the search ($N = 1020$ windows; bands are 95% bootstrap CIs).
 
 This repository holds **scripts, frozen result JSON, and the publication figure** for the DOE Genesis **Focus Area 20.A** (AI for adversarial robustness and resilience) preliminary result on NREL [BuildingsBench](https://github.com/NREL/buildingsbench) Transformer-L (Gaussian), zero-shot on the BDG-2 commercial slice (panther, bear, fox, rat).
 
@@ -17,8 +17,9 @@ This repository holds **scripts, frozen result JSON, and the publication figure*
 | `docs/figures/` | `preliminary_bar.png` / `.pdf` — figure rendered for the proposal (torch-free). |
 | `results/experiment_final.json` | PGD sweep (aggregate NRMSE + bootstrap CIs per $\varepsilon$). |
 | `results/experiment_random.json` | Uniform $L_\infty$ noise control, same protocol. |
-| `scripts/plot_from_json.py` | Regenerate the figure from the JSON files (no GPU, no `buildings_bench`). |
-| `scripts/run_experiment.py` | Full pipeline: load public checkpoint + data, PGD/noise, JSON + figure (GPU, see below). |
+| `results/experiment_cmaes_v2.json` | CMA-ES + DCT agent (two-stage AR refinement, amortized $q_\phi$). |
+| `scripts/plot_from_json.py` | Regenerate the three-curve figure from JSON files (no GPU, no `buildings_bench`). |
+| `scripts/run_experiment.py` | Full pipeline: load public checkpoint + data, PGD/noise/CMA-ES, JSON + figure (GPU, see below). |
 
 ## Quick start — reproduce the figure from JSON
 
@@ -31,6 +32,7 @@ pip install -r requirements-plot.txt
 python scripts/plot_from_json.py \
   --json results/experiment_final.json \
   --random-json results/experiment_random.json \
+  --cmaes-json results/experiment_cmaes_v2.json \
   --out docs/figures/preliminary_bar.pdf
 ```
 
@@ -60,7 +62,7 @@ python scripts/run_experiment.py \
   --fig docs/figures/preliminary_bar.pdf
 ```
 
-Repeat with `--attack random` to regenerate `experiment_random.json`. Pin the checkpoint SHA-256 in your notes; the JSON stores an 8-character prefix for traceability.
+Repeat with `--attack random` for `experiment_random.json` and `--attack cmaes` for `experiment_cmaes_v2.json`. Pin the checkpoint SHA-256 in your notes; the JSON stores an 8-character prefix for traceability.
 
 ## Provenance (frozen JSON in `results/`)
 
