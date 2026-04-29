@@ -1,7 +1,7 @@
 # Genesis 20.A — preliminary BuildingsBench vulnerability baseline
 
 <p align="center">
-  <img src="docs/figures/preliminary_bar.png" alt="Preliminary vulnerability baseline: PGD vs uniform noise on BuildingsBench Transformer-L (zero-shot, BDG-2 commercial)" width="92%">
+  <img src="docs/figures/preliminary_bar.png?raw=true" alt="CMA-ES + DCT agent vs PGD vs random noise on BuildingsBench Transformer-L (zero-shot, BDG-2 commercial)" width="92%">
 </p>
 
 **What this shows.** The proposed **CMA-ES + DCT agent** (blue) finds **84% more NRMSE degradation** than white-box PGD (red, 20 gradient steps) at $\varepsilon = 0.2$, crossing $\tau_{\mathrm{bad}} = 1.5 \times \mathrm{clean}$ at $\varepsilon^\ast \approx 0.08$ versus PGD's $\approx 0.14$. Both targeted methods far exceed **matched-budget uniform noise** (gray). The agent searches a 20-coefficient DCT subspace (smooth, load-like perturbations), explores via a fast teacher-forced surrogate, then refines on the true autoregressive NRMSE that PGD's differentiable surrogate cannot reach. An amortized proposal network $q_\phi$ trained online across windows further concentrates the search ($N = 1020$ windows; bands are 95% bootstrap CIs).
